@@ -174,7 +174,7 @@ export default function AlbumRatingApp() {
     return (
       <div className="flex gap-1">
         {[1, 2, 3, 4, 5].map((star) => (
-          <star
+          <Star
             key={star}
             size={20}
             className={`${
