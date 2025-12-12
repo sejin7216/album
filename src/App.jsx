@@ -1,5 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { Star, Plus, Edit2, Trash2, Save, X, RefreshCw } from "lucide-react";
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(
+  import.meta.env.VITE_SUPABASE_URL,
+  import.meta.env.VITE_SUPABASE_ANON_KEY
+);
 
 // 앨범 평가 프로그램 메인 컴포넌트
 export default function AlbumRatingApp() {
@@ -33,91 +39,73 @@ export default function AlbumRatingApp() {
   // 편집 중인 앨범 데이터
   const [editingAlbum, setEditingAlbum] = useState(null);
 
-  // 컴마시 클로드 저장소에서 데이터 불러오기
-  useEffect(() => {
-    loadAlbumsFromStorage();
-  }, []);
-
   // 클로드 저장소에서 앨범 데이터 불러오기
-  const loadAlbumsFromStorage = async () => {
-    setIsLoading(true);
-    try {
-      // shared: true로 모든 사용자가 같은 데이터 공유
-      const result = await window.storage.get('shared-albums', true);
+const loadAlbumsFromStorage = async () => {
+  setIsLoading(true);
+  try {
+    const { data, error } = await supabase
+      .from("albums")
+      .select("*")
+      .order("id", { ascending: true });
 
-      if (result && result.value) {
-        const loadedAlbums = JSON.parse(result.value);
-        setAlbums(loadedAlbums);
-      } else {
-        // 데이터가 없으면 빈 배열
-        setAlbums([]);
-      }
-    } catch (error) {
-      console.error('앨범 불러오기 실패:', error);
-      // 오류 발생 시 빈 배열로 시작
-      setAlbums([]);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    if (error) throw error;
 
-  // 클로드 저장소에 앨범 데이터 저장
-  const saveAlbumsToStorage = async (updatedAlbums) => {
-    setIsSaving(true);
-    try {
-      // shared: true로 모든 사용자가 같은 데이터 공유
-      await window.storage.set("shared-albums", JSON.stringify(updatedAlbums), true);
-    } catch (error) {
-      console.error("앨범 저장 실패:", error);
-      alert("앨범 저장에 실패했습니다. 다시 시도해주세요.");
-    } finally {
-      setIsSaving(false);
-    }
-  };
+    setAlbums(data || []);
+  } catch (error) {
+    console.error("데이터 불러오기 실패:", error);
+    alert("데이터 불러오기에 실패했습니다.");
+  } finally {
+    setIsLoading(false);
+  }
+};
+
+useEffect(() => {
+  loadAlbumsFromStorage();
+}, []);
 
   // 새 앨범 추가 함수
-  const handleAddAlbum = async () => {
-    // 필수 입력값 확인
-    if (!newAlbum.title || !newAlbum.artist) {
-      alert("앨범 제목과 아티스트는 필수입니다!");
-      return;
-    }
+const handleAddAlbum = async () => {
+  if (!newAlbum.title || !newAlbum.artist) {
+    alert("앨범 제목과 아티스트는 필수입니다!");
+    return;
+  }
 
-    // 새 앨범 객체 생성
-    const album = {
-      id: Date.now(),
-      ...newAlbum
-    };
+  setIsSaving(true);
 
-    // 앨범 목록에 추가
-    const updatedAlbums = [...albums, album];
-    setAlbums(updatedAlbums);
+  try {
+    const { error } = await supabase.from("albums").insert([newAlbum]);
+    if (error) throw error;
 
-    // 클로드 저장소에 저장
-    await saveAlbumsToStorage(updatedAlbums);
-
-    // 입력 폼 초기화 및 모델 닫기
-    setNewAlbum({
-      cover: '',
-      title: '',
-      artist: '',
-      review: '',
-      rating: 0
-    });
+    await loadAlbumsFromStorage();
     setShowAddModal(false);
-  };
+
+    setNewAlbum({ cover: '', title: '', artist: '', review: '', rating: 0 });
+
+  } catch (error) {
+    console.error(error);
+    alert("저장 실패");
+  } finally {
+    setIsSaving(false);
+  }
+};
 
   // 앨범 삭제 함수
-  const handleDeleteAlbum = async (id) => {
-    // 삭제 확인 후 목록에서 제거
-    if (window.confirm("이 앨범을 삭제하시겠습니까?\n(모든 사용자에게서 삭제됩니다)")) {
-      const updatedAlbums = albums.filter(album => album.id !== id);
-      setAlbums(updatedAlbums);
+const handleDeleteAlbum = async (id) => {
+  if (!window.confirm("정말 삭제하시겠습니까?")) return;
 
-      // 클로드 저장소에 저장
-      await saveAlbumsToStorage(updatedAlbums);
-    }
-  };
+  setIsSaving(true);
+
+  try {
+    const { error } = await supabase.from("albums").delete().eq("id", id);
+    if (error) throw error;
+
+    await loadAlbumsFromStorage();
+  } catch (error) {
+    alert("삭제 실패");
+  } finally {
+    setIsSaving(false);
+  }
+};
 
   // 앨범 편집 시작 함수
   const startEditing = (album) => {
@@ -126,20 +114,27 @@ export default function AlbumRatingApp() {
   };
 
   // 앨범 편집 저장 함수
-  const saveEditing = async () => {
-    // 편집된 내용을 앨범 목록에 반영
-    const updatedAlbums = albums.map(album =>
-      album.id === editingId ? editingAlbum : album
-    );
-    setAlbums(updatedAlbums);
+const saveEditing = async () => {
+  setIsSaving(true);
 
-    // 클로드 저장소에 저장
-    await saveAlbumsToStorage(updatedAlbums);
+  try {
+    const { error } = await supabase
+      .from("albums")
+      .update(editingAlbum)
+      .eq("id", editingId);
 
-    // 편집 모드 종료
+    if (error) throw error;
+
+    await loadAlbumsFromStorage();
     setEditingId(null);
     setEditingAlbum(null);
-  };
+
+  } catch (error) {
+    alert("업데이트 실패");
+  } finally {
+    setIsSaving(false);
+  }
+};
 
   // 앨범 편집 취소 함수
   const cancelEditing = () => {
